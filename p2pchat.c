@@ -9,6 +9,7 @@
 #include "ui.h"
 
 #define MAX_USERS 10
+#define MAX_MESSAGE_LENGTH 2048
 
 // Keep the username in a global so we can access it from the callback
 const char* username;
@@ -29,12 +30,29 @@ void *server_func(void* server_socket_fd_arg){
       perror("accept failed");
       exit(EXIT_FAILURE);
     }
-    // add to the list
+    ui_display("Connected to port","PORT");
+    num_peers_connected++;
+    peer_sockets[num_peers_connected]=client_socket_fd;
   }
   return NULL;
 }
 
 void* listener_func(){
+  char buf[500];
+  while(true){
+    for (int i=0;i<num_peers_connected;i++){
+      int rd = read(peer_sockets[i], buf, 500);
+      ui_display("Read something?", buf);
+      if(rd == -1){
+        perror("Could not receive message");
+        exit(EXIT_FAILURE);
+        }
+      if (buf != NULL) {
+        ui_display("CLIENT", buf);
+      }
+      continue;
+    }
+  }
   return NULL;
 }
 
@@ -44,7 +62,13 @@ void input_callback(const char* message) {
     ui_exit();
   } else {
     ui_display(username, message);
-    // send_message
+  
+    for (int i; i<num_peers_connected;i++){
+      if(write(peer_sockets[i], message, 500) == -1){
+        perror("Could not write to peer");
+        exit(2);
+      }
+    }
   }
 }
 
@@ -81,7 +105,8 @@ int main(int argc, char** argv) {
       exit(EXIT_FAILURE);
     }
 
-    peer_sockets[num_peers_connected++]=socket_fd;
+    num_peers_connected++;
+    peer_sockets[num_peers_connected]=socket_fd;
   }
 
   pthread_t server_thread;

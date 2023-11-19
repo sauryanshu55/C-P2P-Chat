@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "emmet.includeLanguages": "{\"jinja-html\": \"html\"}",
+        "*.jinja-html": "html",
+        "errno.h": "c"
+    }
+}

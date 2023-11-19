@@ -1,4 +1,4 @@
-CC := clang
+CC := gcc
 CFLAGS := -g -Wall -Werror -Wno-unused-function -Wno-unused-variable
 
 all: p2pchat
