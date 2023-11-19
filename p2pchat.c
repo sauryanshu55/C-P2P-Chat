@@ -42,7 +42,6 @@ void* listener_func(){
   while(true){
     for (int i=0;i<num_peers_connected;i++){
       int rd = read(peer_sockets[i], buf, 500);
-      ui_display("Read something?", buf);
       if(rd == -1){
         perror("Could not receive message");
         exit(EXIT_FAILURE);
