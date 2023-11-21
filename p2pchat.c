@@ -5,129 +5,224 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "message.h"
 #include "socket.h"
 #include "ui.h"
 
-#define MAX_USERS 10
-#define MAX_MESSAGE_LENGTH 2048
+#define MAX_NUM_CONNECTIONS 10
+#define MAX_USERNAME_LENGTH 16
+#define MAX_MESSAGE_LENGTH 1024
+#define MAX_CONDENSED_STRING_LENGTH MAX_USERNAME_LENGTH + MAX_MESSAGE_LENGTH + 2
+#define MAGIC_NUMBER 10551055 //The list of peers is initialized to become an array of magic numbers
 
 // Keep the username in a global so we can access it from the callback
-const char* username;
-int peer_sockets[MAX_USERS];
-int num_peers_connected=0;
+const char *username;
+// Number of connections done
+int num_connections = 0;
 
-void *server_func(void* server_socket_fd_arg){
-  int server_socket_fd = *((int *)server_socket_fd_arg);
-  if (listen(server_socket_fd, 1)) {
-    perror("listen failed");
-    exit(EXIT_FAILURE);
-  }
+// A single peer's lists of connections it has
+int connected_peer_sockets[MAX_NUM_CONNECTIONS];
 
-  while(true){
-    if (num_peers_connected>MAX_USERS) break;
-    int client_socket_fd = server_socket_accept(server_socket_fd);
-    if (client_socket_fd == -1) {
-      perror("accept failed");
-      exit(EXIT_FAILURE);
-    }
-    ui_display("Connected to port","PORT");
-    num_peers_connected++;
-    peer_sockets[num_peers_connected]=client_socket_fd;
-  }
-  return NULL;
+// Message struct that holds username and message
+typedef struct message {
+    char *username;
+    char *message;
+} message_t;
+
+// De-scrample the message and convert it into a string, and return it
+char *turn_struct_to_string(message_t msg) {
+    char *condensed_string = malloc(sizeof(char) * (MAX_MESSAGE_LENGTH + MAX_USERNAME_LENGTH + 2));
+
+    memcpy(condensed_string, msg.username, MAX_USERNAME_LENGTH + 1);
+    memcpy(condensed_string + MAX_USERNAME_LENGTH + 1, msg.message, MAX_MESSAGE_LENGTH + 1);
+    
+    return condensed_string;
 }
 
-void* listener_func(){
-  char buf[500];
-  while(true){
-    for (int i=0;i<num_peers_connected;i++){
-      int rd = read(peer_sockets[i], buf, 500);
-      if(rd == -1){
-        perror("Could not receive message");
+// Convert a whole string with username+message to message struct, and return it
+message_t turn_string_to_struct(char *condensed_string) {
+    message_t msg;
+
+    msg.message = malloc(sizeof(char) * MAX_MESSAGE_LENGTH);
+    msg.username = malloc(sizeof(char) * MAX_USERNAME_LENGTH);
+
+    memcpy(msg.username, condensed_string, MAX_USERNAME_LENGTH + 1);
+    memcpy(msg.message, condensed_string + MAX_USERNAME_LENGTH + 1, MAX_MESSAGE_LENGTH + 1);
+
+    return msg;
+}
+
+// Runs the "server" for each peer. It runs in an infinite loop in a single thread of its own to accept new incoming connections
+void *server_func(void *server_socket_fd_arg) {
+    int port_server_fd = *(int *)server_socket_fd_arg;  // Converting thread arg to usable int
+
+    // Start listening for connections, with a maximum of one queued connection
+    // CITATION: Netwoeking exercise
+    if (listen(port_server_fd, 1)) {
+        perror("WError while listenign");
         exit(EXIT_FAILURE);
-        }
-      if (buf != NULL) {
-        ui_display("CLIENT", buf);
-      }
-      continue;
     }
-  }
-  return NULL;
+
+    // Infinite loop
+    while (true) {
+        // CITATION: Netwoeking exercise
+        int peer_socket_fd = server_socket_accept(port_server_fd);
+        if (peer_socket_fd == -1) {
+            perror("Error opening port");
+            exit(EXIT_FAILURE);
+        }
+        if (num_connections > MAX_NUM_CONNECTIONS) {
+            perror("Cannot exceed 20 connections");
+            exit(EXIT_FAILURE);
+        }
+        // Adding the peer socket fd to the list of peers that are connected to us
+        ui_display("NEW PEER CONNECTED"," ");
+        connected_peer_sockets[num_connections++] = peer_socket_fd;
+    }
+}
+
+// Runs the "client" function of a peer. Repeatedly listens for new messages and displays it
+void *listener_func() {
+    // infinite loop
+    while (true) {
+        // Run through all the connections we have to periodically recieve messages
+        for (int i = 0; i < num_connections; i++) {
+            char *condensed_string = malloc(sizeof(char) * MAX_CONDENSED_STRING_LENGTH);  // Condensed string holds the "entire" message: username + message.
+
+            sleep(3);  // The UI cant seem to handle so many loops at once, it bugs out, and gives incpnsistennt behaviour. Hence, we sleep for a short while here
+            // occasionally, messages take a while to appear due to this.
+
+            if (connected_peer_sockets[i] == -1) break;
+            // Read from peer socket
+            int rc = read(connected_peer_sockets[i], condensed_string, MAX_CONDENSED_STRING_LENGTH); // CITATION: Networking Exercise, send_message and recieve_message functions
+            message_t msg = turn_string_to_struct(condensed_string);
+            if (rc != 0) {  // There is something to display
+                ui_display(msg.username, msg.message);
+
+                for (int j = 0; j < num_connections; j++) {
+                    if (connected_peer_sockets[j] == MAGIC_NUMBER) break;
+                    if (i != j) {                                                                                     // Avoid sending message to oneself (the same peer that it is originating from)
+                        if (write(connected_peer_sockets[j], condensed_string, MAX_CONDENSED_STRING_LENGTH) == -1) {  // CITATION: Netwoeking exercise
+                            perror("Could not send message to peer");
+                            exit(EXIT_FAILURE);
+                        } else {
+                            continue;
+                        }
+                    }
+                }
+
+            } else {  // There is nothing to display
+                free(msg.username);
+                free(msg.message);
+                free(condensed_string);
+                continue;
+            }
+            free(msg.username);
+            free(msg.message);
+            free(condensed_string);
+        }
+    }
 }
 
 // This function is run whenever the user hits enter after typing a message
-void input_callback(const char* message) {
-  if (strcmp(message, ":quit") == 0 || strcmp(message, ":q") == 0) {
-    ui_exit();
-  } else {
-    ui_display(username, message);
-  
-    for (int i; i<num_peers_connected;i++){
-      if(write(peer_sockets[i], message, 500) == -1){
-        perror("Could not write to peer");
-        exit(2);
-      }
+void input_callback(const char *message) {
+    if (strcmp(message, ":quit") == 0 || strcmp(message, ":q") == 0) {
+        ui_exit();
+    } else {
+        ui_display(username, message);
+
+        // Loop through and send to all available peers
+        for (int j = 0; j < num_connections; j++) {
+            message_t msg;  // define a message struct
+
+            msg.message = malloc(sizeof(char) * MAX_MESSAGE_LENGTH);
+            msg.username = malloc(sizeof(char) * MAX_USERNAME_LENGTH);
+            memcpy(msg.username, username, MAX_USERNAME_LENGTH);
+            memcpy(msg.message, message, MAX_MESSAGE_LENGTH);
+
+            // convert the struct to string so that we can send to the connected peers
+            char *condensed_message = turn_struct_to_string(msg);  // condensed message is the "entire" string: username+message
+
+            if (connected_peer_sockets[j] == MAGIC_NUMBER) break;  // Dont send to self
+            if (j != MAGIC_NUMBER) {
+                if (write(connected_peer_sockets[j], condensed_message, MAX_CONDENSED_STRING_LENGTH) == -1) {  // CITATION: Networking Exercise, send_message and recieve_message functions
+                    perror("Could not send message to peers");
+                    exit(2);
+                } else {
+                    continue;
+                }
+            }
+            free(msg.username);
+            free(msg.message);
+            free(condensed_message);
+        }
     }
-  }
 }
 
-int main(int argc, char** argv) {
-  // Make sure the arguments include a username
-  if (argc != 2 && argc != 4) {
-    fprintf(stderr, "Usage: %s <username> [<peer> <port number>]\n", argv[0]);
-    exit(1);
-  }
 
-  // Save the username in a global
-  username = argv[1];
+// this function initializes each element in the peer list to the magic number. It is updated to the socket_fd of the peer as more peers are added
+void init_peer_lst(int peer_lst[]) {
+    for (int i = 0; i < MAX_NUM_CONNECTIONS; i++) {
+        peer_lst[i] = MAGIC_NUMBER;
+    }
+}
 
-  // TODO: Set up a server socket to accept incoming connections
-  // Open a server socket
-  unsigned short port = 0;
-  int server_socket_fd = server_socket_open(&port);
-  if (server_socket_fd == -1) {
-    perror("Server socket was not opened");
-    exit(EXIT_FAILURE);
-  }
-
-  // Did the user specify a peer we should connect to?
-  if (argc == 4) {
-    // Unpack arguments
-    char* peer_hostname = argv[2];
-    unsigned short peer_port = atoi(argv[3]);
-
-    // TODO: Connect to another peer in the chat network
-    int socket_fd = socket_connect(peer_hostname, peer_port);
-    // listen here!
-    if (socket_fd == -1) {
-      perror("Failed to connect");
-      exit(EXIT_FAILURE);
+int main(int argc, char **argv) {
+    // Make sure the arguments include a username
+    if (argc != 2 && argc != 4) {
+        fprintf(stderr, "Usage: %s <username> [<peer> <port number>]\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
 
-    num_peers_connected++;
-    peer_sockets[num_peers_connected]=socket_fd;
-  }
+    // Save the username in a global
+    username = argv[1];
 
-  pthread_t server_thread;
-  pthread_create(&server_thread,NULL,server_func,&server_socket_fd);
-  // dont make thread here idiot
-  pthread_t listener_thread;
-  pthread_create(&listener_thread,NULL,listener_func,NULL);
+    // We initialize the peer list with a magic number. The list stays the magic number until a peer is connected, at which point, it is changed.
+    // We check magic number to see if a peer has quit or not
+    // CITATION: The idea of initializing the list to a list of MAGIC numbers, so that we can keep track of which peer has exited and which peer has not. was provided by Chat GPT
+    init_peer_lst(connected_peer_sockets);
 
+    // Set up a server socket to accept incoming connections
+    unsigned short server_port = 0;
+    int port_socket_fd = server_socket_open(&server_port);
+    if (port_socket_fd == -1) {
+        perror("Error in opening server socket");
+        exit(EXIT_FAILURE);
+    }
 
-  // Set up the user interface. The input_callback function will be called
-  // each time the user hits enter to send a message.
-  ui_init(input_callback);
+    // Did the user specify a peer we should connect to?
+    if (argc == 4) {
+        // Unpack arguments
+        char *peer_hostname = argv[2];
+        unsigned short peer_port = atoi(argv[3]);
+        // connect to peer port
+        int peer_socket_fd = socket_connect(peer_hostname, peer_port);
+        if (peer_socket_fd == -1) {
+            perror("Failed to connect to peer");
+            exit(EXIT_FAILURE);
+        }
+        connected_peer_sockets[num_connections++] = peer_socket_fd;
+    }
 
-  // Once the UI is running, you can use it to display log messages
-  ui_display("INFO", "This is a handy log message.");
+    // run listen thread
+    pthread_t server_thread;
+    pthread_create(&server_thread, NULL, server_func, &port_socket_fd);
+    pthread_t listener_thread;
+    pthread_create(&listener_thread, NULL, listener_func, NULL);
 
-  char port_string[50];
-  sprintf(port_string,"%u",port);
-  ui_display("Listening on port",port_string);
+    // Set up the user interface. The input_callback function will be called
+    // each time the user hits enter to send a message.
+    ui_init(input_callback);
 
-  // Run the UI loop. This function only returns once we call ui_stop() somewhere in the program.
-  ui_run();
+    // Once the UI is running, you can use it to display log messages
+    char port_string[50];
+    sprintf(port_string, "%u", server_port);
+    ui_display("LISTENING ON PORT", port_string);
 
-  return 0;
+    // Run the UI loop. This function only returns once we call ui_stop() somewhere in the program.
+    ui_run();
+
+    return 0;
 }
+
+// ./p2pchat two localhost 
