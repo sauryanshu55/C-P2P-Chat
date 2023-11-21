@@ -5,7 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define MAX_MESSAGE_LENGTH 2048
+#define MAX_MESSAGE_LEN 2048
 // Send a across a socket with a header that includes the message length.
 int send_message(int fd, char* message) {
   // If the message is NULL, set errno to EINVAL and return an error
@@ -47,7 +47,7 @@ char* receive_message(int fd) {
   }
 
   // Now make sure the message length is reasonable
-  if (len > MAX_MESSAGE_LENGTH) {
+  if (len > MAX_MESSAGE_LEN) {
     errno = EINVAL;
     return NULL;
   }
