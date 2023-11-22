@@ -76,7 +76,6 @@ void *server_func(void *server_socket_fd_arg) {
             exit(EXIT_FAILURE);
         }
         // Adding the peer socket fd to the list of peers that are connected to us
-        ui_display("NEW PEER CONNECTED"," ");
         connected_peer_sockets[num_connections++] = peer_socket_fd;
     }
 }
@@ -224,5 +223,3 @@ int main(int argc, char **argv) {
 
     return 0;
 }
-
-// ./p2pchat two localhost 
