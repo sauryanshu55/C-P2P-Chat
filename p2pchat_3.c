@@ -30,27 +30,34 @@ typedef struct message {
 } message_t;
 
 // De-scrample the message and convert it into a string, and return it
-char *turn_struct_to_string(message_t msg) {
-    char *condensed_string = malloc(sizeof(char) * (MAX_MESSAGE_LENGTH + MAX_USERNAME_LENGTH + 2));
+// char *turn_struct_to_string(message_t msg) {
+//     message_t msg; 
 
-    memcpy(condensed_string, msg.username, MAX_USERNAME_LENGTH + 1);
-    memcpy(condensed_string + MAX_USERNAME_LENGTH + 1, msg.message, MAX_MESSAGE_LENGTH + 1);
+//     char *condensed_string = malloc(sizeof(char) * (MAX_MESSAGE_LENGTH + MAX_USERNAME_LENGTH + 2));
+
+//     memcpy(condensed_string, msg.username, MAX_USERNAME_LENGTH + 1);
+
+//     ui_display("memcpy user", condensed_string); 
+
+//     memcpy(condensed_string + MAX_USERNAME_LENGTH + 1, msg.message, MAX_MESSAGE_LENGTH + 1);
+
+//     ui_display("memcpy message", condensed_string); 
     
-    return condensed_string;
-}
+//     return condensed_string;
+// }
 
 // Convert a whole string with username+message to message struct, and return it
-message_t turn_string_to_struct(char *condensed_string) {
-    message_t msg;
+// message_t turn_string_to_struct(char *condensed_string) {
+//     message_t msg;
 
-    msg.message = malloc(sizeof(char) * MAX_MESSAGE_LENGTH);
-    msg.username = malloc(sizeof(char) * MAX_USERNAME_LENGTH);
+//     msg.message = malloc(sizeof(char) * MAX_MESSAGE_LENGTH);
+//     msg.username = malloc(sizeof(char) * MAX_USERNAME_LENGTH);
 
-    memcpy(msg.username, condensed_string, MAX_USERNAME_LENGTH + 1);
-    memcpy(msg.message, condensed_string + MAX_USERNAME_LENGTH + 1, MAX_MESSAGE_LENGTH + 1);
+//     memcpy(msg.username, condensed_string, MAX_USERNAME_LENGTH + 1);
+//     memcpy(msg.message, condensed_string + MAX_USERNAME_LENGTH + 1, MAX_MESSAGE_LENGTH + 1);
 
-    return msg;
-}
+//     return msg;
+// }
 
 // Runs the "server" for each peer. It runs in an infinite loop in a single thread of its own to accept new incoming connections
 void *server_func(void *server_socket_fd_arg) {
@@ -87,22 +94,30 @@ void *listener_func() {
     while (true) {
         // Run through all the connections we have to periodically recieve messages
         for (int i = 0; i < num_connections; i++) {
-            char *condensed_string = malloc(sizeof(char) * MAX_CONDENSED_STRING_LENGTH);  // Condensed string holds the "entire" message: username + message.
-
+            char *username = malloc(sizeof(char) * MAX_CONDENSED_STRING_LENGTH);  // Condensed string holds the "entire" message: username + message.
+            char *message = malloc(sizeof(char) * MAX_CONDENSED_STRING_LENGTH); 
             // sleep(3);  // The UI cant seem to handle so many loops at once, it bugs out, and gives incpnsistennt behaviour. Hence, we sleep for a short while here
             // occasionally, messages take a while to appear due to this.
 
             if (connected_peer_sockets[i] == -1) break;
             // Read from peer socket
-            int rc = read(connected_peer_sockets[i], condensed_string, MAX_CONDENSED_STRING_LENGTH); // CITATION: Networking Exercise, send_message and recieve_message functions
-            message_t msg = turn_string_to_struct(condensed_string);
-            if (rc != 0) {  // There is something to display
-                ui_display(msg.username, msg.message);
+            username = receive_message(connected_peer_sockets[i]); 
+            message = receive_message(connected_peer_sockets[i]); // CITATION: Networking Exercise, send_message and recieve_message functions
+            // message_t msg = turn_string_to_struct(condensed_string);
+            if ((username != NULL)||(message != NULL)) {  // There is something to display
+                ui_display(username, message);
 
                 for (int j = 0; j < num_connections; j++) {
                     if (connected_peer_sockets[j] == MAGIC_NUMBER) break;
-                    if (i != j) {                                                                                     // Avoid sending message to oneself (the same peer that it is originating from)
-                        if (write(connected_peer_sockets[j], condensed_string, MAX_CONDENSED_STRING_LENGTH) == -1) {  // CITATION: Netwoeking exercise
+                    if (i != j) {  // Avoid sending message to oneself (the same peer that it is originating from)
+                        if (send_message(connected_peer_sockets[j], username) == -1) {  // CITATION: Netwoeking exercise
+                            perror("Could not send message to peer");
+                            exit(EXIT_FAILURE);
+                        } else {
+                            continue;
+                        }
+
+                        if (send_message(connected_peer_sockets[j], message) == -1) {  // CITATION: Netwoeking exercise
                             perror("Could not send message to peer");
                             exit(EXIT_FAILURE);
                         } else {
@@ -112,14 +127,14 @@ void *listener_func() {
                 }
 
             } else {  // There is nothing to display
-                free(msg.username);
-                free(msg.message);
-                free(condensed_string);
+                free(username);
+                free(message);
+                // free(condensed_string);
                 continue;
             }
-            free(msg.username);
-            free(msg.message);
-            free(condensed_string);
+            free(username);
+            free(message);
+            // free(condensed_string);
         }
     }
 }
@@ -133,19 +148,33 @@ void input_callback(const char *message) {
 
         // Loop through and send to all available peers
         for (int j = 0; j < num_connections; j++) {
-            message_t msg;  // define a message struct
+            // message_t msg;  // define a message struct
 
-            msg.message = malloc(sizeof(char) * MAX_MESSAGE_LENGTH);
-            msg.username = malloc(sizeof(char) * MAX_USERNAME_LENGTH);
-            memcpy(msg.username, username, MAX_USERNAME_LENGTH);
-            memcpy(msg.message, message, MAX_MESSAGE_LENGTH);
+            // msg.message = malloc(sizeof(char) * MAX_MESSAGE_LENGTH);
+            // msg.username = malloc(sizeof(char) * MAX_USERNAME_LENGTH);
+            // memcpy(msg.username, username, MAX_USERNAME_LENGTH);
+            // memcpy(msg.message, message, MAX_MESSAGE_LENGTH);
+
+            // ui_display("struct user", msg.username); 
+            // ui_display("struct message", msg.message); 
+
+            // ui_display("converting to string", turn_struct_to_string(msg)); 
 
             // convert the struct to string so that we can send to the connected peers
-            char *condensed_message = turn_struct_to_string(msg);  // condensed message is the "entire" string: username+message
+            // char *condensed_message = turn_struct_to_string(msg);  // condensed message is the "entire" string: username+message
+
+            // ui_display("msg", condensed_message); 
 
             if (connected_peer_sockets[j] == MAGIC_NUMBER) break;  // Dont send to disconnected peers or peers not connetcted yet
             // if (j != MAGIC_NUMBER) {
-                if (write(connected_peer_sockets[j], condensed_message, MAX_CONDENSED_STRING_LENGTH) == -1) {  // CITATION: Networking Exercise, send_message and recieve_message functions
+                if (send_message(connected_peer_sockets[j], username) == -1) {  // CITATION: Networking Exercise, send_message and recieve_message functions
+                    perror("Could not send message to peers");
+                    exit(2);
+                } else {
+                    continue;
+                }
+
+                if (send_message(connected_peer_sockets[j], message) == -1) {  // CITATION: Networking Exercise, send_message and recieve_message functions
                     perror("Could not send message to peers");
                     exit(2);
                 } else {
